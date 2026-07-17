@@ -1,0 +1,63 @@
+name: Build Javia Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up Java Environment
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Initialize Web and Capacitor structures
+        run: |
+          cd ..
+          npm init -y
+          npm install @capacitor/core @capacitor/cli @capacitor/android
+          cp package.json Javia/
+          mkdir -p Javia/www
+          echo '<!DOCTYPE html><html><head><title>Javia</title></head><body></body></html>' > Javia/www/index.html
+          mkdir -p Javia/app/src/main/assets
+          echo '[]' > Javia/app/src/main/assets/capacitor.plugins.json
+          cd Javia
+          echo '{"appId":"com.javia.ai","appName":"Javia","webDir":"www"}' > capacitor.config.json
+          npx cap add android || true
+          npx cap sync android
+          cd ..
+          sed -i "s/include ':capacitor-cordova-android-plugins'//g" Javia/settings.gradle
+          sed -i "s/project(':capacitor-cordova-android-plugins').projectDir.*/ /g" Javia/settings.gradle
+          sed -i "s/implementation project(':capacitor-cordova-android-plugins')//g" Javia/app/build.gradle
+          sed -i "s/compileSdk .*/compileSdk 35/g" Javia/app/build.gradle
+          sed -i "s/targetSdk .*/targetSdk 35/g" Javia/app/build.gradle
+          if [ -f Javia/gradle.properties ]; then sed -i "/android.aapt2FromMavenOverride/d" Javia/gradle.properties; fi
+          sed -i "/android.aapt2FromMavenOverride/d" Javia/app/build.gradle
+          echo -e "\nallprojects {\n    configurations.all {\n        resolutionStrategy.forcedModules = ['androidx.core:core:1.13.1', 'androidx.core:core-ktx:1.13.1', 'androidx.activity:activity:1.9.3', 'androidx.activity:activity-ktx:1.9.3']\n    }\n}" >> Javia/build.gradle
+
+      - name: Grant Execute Permission to Gradlew
+        run: chmod +x Javia/gradlew
+
+      - name: Compile and Build Debug APK
+        run: cd Javia && ./gradlew assembleDebug
+
+      - name: Upload Finished APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Javia-Debug-APK
+          path: Javia/app/build/outputs/apk/debug/app-debug.apk
